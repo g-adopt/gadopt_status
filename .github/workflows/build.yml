@@ -52,7 +52,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: memprof_plots
-          path: docs/static
+          path: docs/static/memprof_plots
           github-token: ${{ github.token }}
           repository: g-adopt/g-adopt
           run-id: ${{ env.run_id }}
