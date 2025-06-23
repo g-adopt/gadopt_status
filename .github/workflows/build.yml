@@ -1,0 +1,74 @@
+name: build
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Run id for rendering job (defaults to latest)'
+        required: false
+        type: number
+  repository_dispatch:
+    types: [doc-rebuild]
+
+permissions:
+  pages: write
+  contents: read
+  id-token: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get run_id from repository dispatch
+        if: ${{ github.event_name == 'repository_dispatch' }}
+        run: echo "run_id=${{ github.event.client_payload.run_id }}" >> "$GITHUB_ENV"
+      - name: Get run_id from workflow dispatch
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ -z "${{ inputs.run_id }}" ]; then
+            run_id=$(gh run list -R g-adopt/g-adopt -w memprof_plot.yml -L 1 --json databaseId --jq '.[].databaseId')
+          else
+            run_id=${{ inputs.run_id }}
+          fi
+          echo "run_id=${run_id}" >> "$GITHUB_ENV"
+      - name: Get run_id for push
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          run_id=$(gh run list -R g-adopt/g-adopt -w memprof_plot.yml -L 1 -b master -s success --json databaseId --jq '.[].databaseId')
+          echo "run_id=${run_id}" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Set up Python
+        run: uv python install
+
+      - name: Download memory profiling plots
+        uses: actions/download-artifact@v4
+        with:
+          name: memprof_plots
+          path: docs/static
+          github-token: ${{ github.token }}
+          repository: g-adopt/g-adopt
+          run-id: ${{ env.run_id }}
+
+      - name: Build site
+        run: |
+          uv run mkdocs build --clean
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/deploy-pages@v4
